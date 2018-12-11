@@ -1,0 +1,136 @@
+---
+title: "Final Portfolio 1"
+author: "Mutong Yang"
+output: rmarkdown::github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+This data is about student performance in an exam, the variables in this dataset are gender, race, parent education levels, whether the student is having free lunches or standard lunches, whether the student took the test preparation course and their math, reading, writing scores.
+
+# Read in data
+```{r}
+library(fpc)
+library(factoextra)
+library(dplyr)
+library(magrittr)
+library(cluster)
+library(HSAUR)
+library(sqldf)
+library(VGAM)
+
+setwd("C:/Users/muton/Desktop/BZAN 552 Multivariate Data Mining Techq/Final Portfolios")
+df <- read.csv("StudentsPerformance.csv", header=TRUE, stringsAsFactors = F, 
+               col.names = c('gender', 'race', 'parentEd', 'lunch', 'prep', 'math', 'reading', 'writing'))
+
+set.seed(552)
+
+x <- df[,c(6:8)]
+
+SSE <- rep(0,15)
+for(k in 1:15){
+  fit.km <- kmeans(x,k)
+  k
+  SSE[k] <- fit.km$tot.withinss
+}
+
+plot(1:15, SSE, type="b", xlab="Number of Clusters")
+```
+
+The plot above shows that 8 would be reasonable for the number of clusters. Because after cluster 8, the slope tend to be stable.
+
+
+# Plot clusters
+```{r}
+fit.km <- kmeans(x, 8, nstart=100)
+
+fit.km$size # Number of items in each cluster
+
+fit.km$centers # returns central value for each cluster
+
+plotcluster(x, fit.km$cluster)
+```
+
+Among all the 8 clusters, cluster 2 has the highest average math, reading and writing scores with 88.3, 93.1 and 93.2, respectively. As we can see, students in this cluster have higher average reading and writing scores compared to their average math score. Cluster 3 follows behind cluster 2 with 82.8 for average math score, 82.1 for average reading score and 80.6 for average writing score.
+
+Cluster 5 has the lowest average math, reading and writing scores with 32.1, 36.0 and 33.6, respectively. While cluster 7 has the second lowest average scores with 47.8, 51.4 and 49.0. In both cluster 5 and 7, students have better average reading score than average math and writing scores.
+
+# Summary
+```{r}
+df$cluster<-fit.km$cluster
+write.csv(df, "StudentPerformanceCluster.csv")
+
+gender.agg<-sqldf("SELECT gender, cluster, COUNT(*) FROM df GROUP BY gender, cluster")
+race.agg<-sqldf("SELECT  race, cluster, COUNT(*) FROM df GROUP BY race, cluster")
+parent.agg<-sqldf("SELECT  parentEd, cluster, COUNT(*) FROM df GROUP BY parentEd, cluster")
+lunch.agg<-sqldf("SELECT  lunch, cluster, COUNT(*) FROM df GROUP BY lunch, cluster")
+prep.agg<-sqldf("SELECT  prep, cluster, COUNT(*) FROM df GROUP BY prep, cluster")
+
+
+counts<-data.frame('Cluster' = gender.agg[1:8,2])
+counts$Females<-gender.agg[1:8,3]
+counts$Males<-gender.agg[9:16,3]
+
+counts$RaceA<-race.agg[1:8,3]
+counts$RaceB<-race.agg[9:16,3]
+counts$RaceC<-race.agg[17:24,3]
+counts$RaceD<-race.agg[25:32,3]
+counts$RaceE<-race.agg[33:40,3]
+
+
+counts$FreeLunch<-lunch.agg[1:8,3]
+counts$StdLunch<-lunch.agg[9:16,3]
+
+counts$Associates<-parent.agg[1:8,3]
+counts$Bachelors<-parent.agg[9:16,3]
+counts$HighSchool<-parent.agg[17:24,3]
+counts$Masters<-c(parent.agg[25:28,3],0,parent.agg[29:31,3])
+counts$SomeCollege<-parent.agg[32:39,3]
+counts$SomeHS<-parent.agg[40:47,3]
+
+
+counts$Prep<-prep.agg[1:8,3]
+counts$NoPrep<-prep.agg[9:16,3]
+
+counts
+
+
+```
+
+Students in cluster 2 have the best average math, reading and writing scores among studnets in all 8 clusters, and most of the students in cluster 2 are females. According to whether the students' were having free lunches or standard lunches, we can see most students in cluster 2 do not recieve free lunches. And the number of students who completed the test preparation course before the test are more than those who did not take the course. 
+
+The student performance in cluster 3 is the second best. For cluster 3, there is an opposite result for gender from cluster 2, the number of male students in this cluster is more than the number of female students. And most students in cluster 3 also do not receive free lunches. Surprisingly, students who did not take the test preparation course in this cluster are slightly more than those who did.
+
+Cluster 5 has the least average performance. The number of female students in cluster 5 is approximately the same as the number of male students. And as can be seen, most students in cluster 5 were having free lunches at school. Also, most students did not take the test preparation course.
+
+For cluster 7, it has the second lowest average math, reading and writing scores. There are slightly more male students than female students in this cluster. The amount of students who were having free lunches is a little more than the amount of students who were having standard lunches, but it is about the same. And students who completed the test preparation course were way less than those who did not.
+    
+    
+
+  Now I will perform analysis on ordinal data from parents education level to determine if clusters are a good predictor of this variable.
+
+```{r}
+cluster<-data.frame('Cluster' = gender.agg[1:8,2])
+
+Associates<-parent.agg[1:8,3]
+Bachelors<-parent.agg[9:16,3]
+HighSchool<-parent.agg[17:24,3]
+Masters<-c(parent.agg[25:28,3],0,parent.agg[29:31,3])
+SomeCollege<-parent.agg[32:39,3]
+SomeHS<-parent.agg[40:47,3]
+
+education<-data.frame(Clusters = as.character(c(1,2,3,4,5,6,7,8)), SomeHS = SomeHS, HighSchool = HighSchool, SomeCollege = SomeCollege,
+                      Associates = Associates, Bachelors = Bachelors, Masters = Masters)
+
+edu.fit<-vglm(cbind(SomeHS, HighSchool, SomeCollege, Associates, Bachelors, Masters)~Clusters,
+                 family=cumulative(link=logit,parallel=TRUE), education)
+summary(edu.fit)
+```
+Looking at the p values for each cluster, it is seen that coefficients are significant for clusters 2,3 and 5. This indicates that parents education level is a strong predictor for whether students will perform well or poorly.
+
+Interpreting the exponentiated coefficients tells us that students in cluster 2 are 0.34 times as likely have parents with the lowest education level compared to cluster 1, who are ranked in the middle of performance levels. students in cluster 3 are 0.65 times as likely to have parents with the lowest education level compared to cluster 1.
+
+Students in cluster 5, those who performed poorest, are 2.11 times as likely to have parents with the lowest education level compared to cluster 1.
+    
+Thank you for taking your time and read my blog!
